@@ -3,6 +3,7 @@ import os
 import json
 import base64
 import requests
+import logging
 import gspread
 import pandas as pd
 from codeowners import CodeOwners
@@ -14,6 +15,7 @@ GITHUB_TOKEN = base64.b64encode(os.getenv('GITHUB_TOKEN').encode()).decode()
 
 
 def main():
+    logging.getLogger().setLevel(level=logging.INFO)
     repos = get_github_repos()
     repo_sha_dicts = get_repo_sha(repos)
     csv_data = get_csv_result(repo_sha_dicts)
@@ -34,12 +36,12 @@ def get_github_repos() -> list:
     github_repos = []
     page = 1
 
-    print("Getting list of GitHub repos...")
+    logging.info("Getting list of GitHub repos...")
     while True:
         response = requests.get(f'https://api.github.com/orgs/{ORG_NAME}/repos?archived=false&per_page=100&page={page}',
                                 headers={'Authorization': f'Basic {GITHUB_TOKEN}'})
         if response.status_code != 200:
-            print(f"Failed to get repos! error: {response.status_code}")
+            logging.fatal(f"Failed to get repos! error: {response.status_code}")
             sys.exit(1)
 
         data = json.loads(response.text)
@@ -50,7 +52,7 @@ def get_github_repos() -> list:
         github_repos.append(data)
         page += 1
 
-    print("List of repos acquired!")
+    logging.info("List of repos acquired!")
     return github_repos
 
 
@@ -58,7 +60,7 @@ def get_repo_sha(github_repos: list) -> list:
 
     sha_list = []
 
-    print("Getting SHAs of main branches...")
+    logging.info("Getting SHAs of main branches...")
     for repo_list in github_repos:
         for repo in repo_list:
             repo_name = repo['full_name']
@@ -68,13 +70,13 @@ def get_repo_sha(github_repos: list) -> list:
                                     headers={'Authorization': f'Basic {GITHUB_TOKEN}'})
 
             if response.status_code != 200:
-                print(f"Failed to get SHA! error: {response.status_code}")
+                logging.fatal(f"Failed to get SHA! error: {response.status_code}")
                 sys.exit(1)
 
             data = json.loads(response.text)
             sha_list.append({repo_name: data['object']['sha']})
 
-    print("SHAs acquired!")
+    logging.info("SHAs acquired!")
     return(sha_list)
 
 
@@ -82,7 +84,7 @@ def get_csv_result(repo_sha_list: list) -> dict:
 
     result_list = []
 
-    print("Updating CODEOWNERS...")
+    logging.info("Updating CODEOWNERS...")
     for repo_sha_dict in repo_sha_list:
         repo_name = [*repo_sha_dict][0]
         sha = [*repo_sha_dict.values()][0]
@@ -91,7 +93,7 @@ def get_csv_result(repo_sha_list: list) -> dict:
                                 headers={'Authorization': f'Basic {GITHUB_TOKEN}'})
 
         if response.status_code != 200:
-            print(f"Failed to get files! error: {response.status_code}")
+            logging.fatal(f"Failed to get files! error: {response.status_code}")
             sys.exit(1)
 
         codeowner_file = get_codeowners_file(repo_name)
@@ -104,7 +106,7 @@ def get_csv_result(repo_sha_list: list) -> dict:
             path = tree['path']
 
             if not codeowner_file:
-                print(f'{repo_name},{path},{None}')
+                logging.info(f'{repo_name},{path},{None}')
                 result_list.append([repo_name, path, None])
                 continue
 
@@ -113,14 +115,14 @@ def get_csv_result(repo_sha_list: list) -> dict:
             if codeowners.of(path):
                 codeowner_name = codeowners.of(path)[0][1]
 
-                print(f'{repo_name},{path},{codeowner_name}')
+                logging.info(f'{repo_name},{path},{codeowner_name}')
                 result_list.append([repo_name, path, codeowner_name])
 
             else:
-                print(f'{repo_name},{path},{None}')
+                logging.info(f'{repo_name},{path},{None}')
                 result_list.append([repo_name, path, None])
 
-    print("Complete!")
+    logging.info("Complete!")
 
     result = pd.DataFrame(result_list, columns=['repo', 'file', 'codeowner'])
     csv_data = result.to_csv('result.csv', index=False)  # Write results to csv
@@ -135,7 +137,7 @@ def get_codeowners_file(repo_name: str) -> str:
                             headers={'Authorization': f'Basic {GITHUB_TOKEN}'})
 
     if response.status_code != 200:
-        print(f"Failed to get codeowners from root directory. Error: {response.status_code}")
+        logging.fatal(f"Failed to get codeowners from root directory. Error: {response.status_code}")
 
     data = json.loads(response.text)
 
@@ -143,7 +145,7 @@ def get_codeowners_file(repo_name: str) -> str:
         response = requests.get(f'https://api.github.com/repos/{repo_name}/contents/.github/CODEOWNERS',
                                 headers={'Authorization': f'Basic {GITHUB_TOKEN}'})
         if response.status_code != 200:
-            print(f"Failed to get codeowners from .github directory. Error: {response.status_code}")
+            logging.info(f"Failed to get codeowners from .github directory. Error: {response.status_code}")
 
         data = json.loads(response.text)
 
