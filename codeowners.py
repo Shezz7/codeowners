@@ -11,10 +11,12 @@ GITHUB_TOKEN = base64.b64encode(os.getenv('GITHUB_TOKEN').encode()).decode()
 
 def main():
     repos = get_github_repos()
+    repo_sha_dicts = get_repo_sha(repos)
     print(repos)
+    print(repo_sha_dicts)
 
 
-def get_github_repos():
+def get_github_repos() -> list:
     """Gets repositories from GitHub"""
 
     github_repos = []
@@ -38,6 +40,30 @@ def get_github_repos():
 
     print("List of repos acquired!")
     return github_repos
+
+
+def get_repo_sha(github_repos: list) -> list:
+
+    sha_list = []
+
+    print("Getting SHAs of main branches...")
+    for repo_list in github_repos:
+        for repo in repo_list:
+            repo_name = repo['full_name']
+            default_branch = repo['default_branch']
+
+            response = requests.get(f'https://api.github.com/repos/{repo_name}/git/refs/heads/{default_branch}',
+                                    headers={'Authorization': f'Basic {GITHUB_TOKEN}'})
+
+            if response.status_code != 200:
+                print(f"Failed to get SHA! error: {response.status_code}")
+                sys.exit(1)
+
+            data = json.loads(response.text)
+            sha_list.append({repo_name: data['object']['sha']})
+
+    print("SHAs acquired!")
+    return(sha_list)
 
 
 if __name__ == '__main__':
