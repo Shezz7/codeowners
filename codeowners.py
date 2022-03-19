@@ -3,6 +3,8 @@ import os
 import json
 import base64
 import requests
+import pandas as pd
+from codeowners import CodeOwners
 
 
 ORG_NAME = '<Insert GitHub org name here>'
@@ -12,8 +14,8 @@ GITHUB_TOKEN = base64.b64encode(os.getenv('GITHUB_TOKEN').encode()).decode()
 def main():
     repos = get_github_repos()
     repo_sha_dicts = get_repo_sha(repos)
-    print(repos)
-    print(repo_sha_dicts)
+    csv_data = get_csv_result(repo_sha_dicts)
+    print(csv_data)
 
 
 def get_github_repos() -> list:
@@ -64,6 +66,83 @@ def get_repo_sha(github_repos: list) -> list:
 
     print("SHAs acquired!")
     return(sha_list)
+
+
+def get_csv_result(repo_sha_list: list) -> dict:
+
+    result_list = []
+
+    print("Updating CODEOWNERS...")
+    for repo_sha_dict in repo_sha_list:
+        repo_name = [*repo_sha_dict][0]
+        sha = [*repo_sha_dict.values()][0]
+
+        response = requests.get(f'https://api.github.com/repos/{repo_name}/git/trees/{sha}?recursive=true',
+                                headers={'Authorization': f'Basic {GITHUB_TOKEN}'})
+
+        if response.status_code != 200:
+            print(f"Failed to get files! error: {response.status_code}")
+            sys.exit(1)
+
+        codeowner_file = get_codeowners_file(repo_name)
+
+        data = json.loads(response.text)
+        for tree in data['tree']:
+            if tree['type'] != 'blob':
+                continue
+
+            path = tree['path']
+
+            if not codeowner_file:
+                print(f'{repo_name},{path},{None}')
+                result_list.append([repo_name, path, None])
+                continue
+
+            codeowners = CodeOwners(codeowner_file)
+
+            if codeowners.of(path):
+                codeowner_name = codeowners.of(path)[0][1]
+
+                print(f'{repo_name},{path},{codeowner_name}')
+                result_list.append([repo_name, path, codeowner_name])
+
+            else:
+                print(f'{repo_name},{path},{None}')
+                result_list.append([repo_name, path, None])
+
+    print("Complete!")
+
+    result = pd.DataFrame(result_list, columns=['repo', 'file', 'codeowner'])
+    csv_data = result.to_csv('result.csv', index=False)  # Write results to csv
+    csv_data = result.to_csv(index=False)
+    return csv_data
+
+
+def get_codeowners_file(repo_name: str) -> str:
+    """Get the codeowners file from a repository"""
+
+    response = requests.get(f'https://api.github.com/repos/{repo_name}/contents/CODEOWNERS',
+                            headers={'Authorization': f'Basic {GITHUB_TOKEN}'})
+
+    if response.status_code != 200:
+        print(f"Failed to get codeowners from root directory. Error: {response.status_code}")
+
+    data = json.loads(response.text)
+
+    if data.get('message') == 'Not Found':
+        response = requests.get(f'https://api.github.com/repos/{repo_name}/contents/.github/CODEOWNERS',
+                                headers={'Authorization': f'Basic {GITHUB_TOKEN}'})
+        if response.status_code != 200:
+            print(f"Failed to get codeowners from .github directory. Error: {response.status_code}")
+
+        data = json.loads(response.text)
+
+    if data.get('message') != 'Not Found':
+        codeowners = base64.b64decode(data['content']).decode()
+    else:
+        codeowners = None
+
+    return codeowners
 
 
 if __name__ == '__main__':
