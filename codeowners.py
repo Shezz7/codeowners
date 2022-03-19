@@ -3,10 +3,12 @@ import os
 import json
 import base64
 import requests
+import gspread
 import pandas as pd
 from codeowners import CodeOwners
+from oauth2client.service_account import ServiceAccountCredentials
 
-
+scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
 ORG_NAME = '<Insert GitHub org name here>'
 GITHUB_TOKEN = base64.b64encode(os.getenv('GITHUB_TOKEN').encode()).decode()
 
@@ -15,7 +17,15 @@ def main():
     repos = get_github_repos()
     repo_sha_dicts = get_repo_sha(repos)
     csv_data = get_csv_result(repo_sha_dicts)
-    print(csv_data)
+    update_sheet(csv_data)
+
+
+def update_sheet(csv_data):
+
+    credentials = ServiceAccountCredentials.from_json_keyfile_name("creds.json", scopes)
+    client = gspread.authorize(credentials)
+    spreadsheet = client.open('<Google_Sheet_Name>')  # Insert name of Google Sheet from your drive here
+    client.import_csv(spreadsheet.id, data=csv_data)
 
 
 def get_github_repos() -> list:
